@@ -1,0 +1,18 @@
+{
+  "case_id": "NVDA-FY2027-Q2-candidate-development-v1",
+  "ticker": "NVDA",
+  "source_reviewed": true,
+  "primary_source_url": "https://investor.nvidia.com/news/press-release-details/2026/NVIDIA-Announces-Financial-Results-for-Second-Quarter-Fiscal-2027/default.aspx",
+  "reviewed_html_sha256": "aa5f1bc059d0b8caf47e21a9813e1de981cc7e09f1ccb5e1284ff5eed2078e37",
+  "identity_passages": [
+    "NVIDIA Announces Financial Results for Second Quarter Fiscal 2027",
+    "quarter ended July 26, 2026",
+    "Beginning in the first quarter of fiscal 2027"
+  ],
+  "selection": "Selected historical primary issuer development source; not holdout or a trade",
+  "manual_review_notes": [
+    "Current quarter table revenue 96,221 million versus rounded summary 96.2 billion. Ordinary table diluted EPS2.46; paired prose says GAAP2.46/non-GAAP2.22.",
+    "Q3 revenue midpoint108billion plus/minus2% is not a literal low/high range and has no explicit quarter-end date in the outlook; the current candidate adapter keeps that unsupported.",
+    "The issuer states FY2027 non-GAAP measures no longer exclude stock-based compensation. Generic NON_GAAP labels do not prove comparability to consensus."
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "case_id": "AAPL-FY2026-Q4-development-v1",
+  "ticker": "AAPL",
+  "title": "Apple reports fourth quarter results",
+  "source_reviewed": true,
+  "primary_source_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000024/a8-kex991q4202609262026.htm",
+  "issuer_source_url": "https://www.apple.com/newsroom/2026/11/apple-reports-fourth-quarter-results/",
+  "reviewed_html_sha256": "dbb9a8f40229fbeadd4584ce0f699b2fe6fb136606067afd0000cba76a87fcb8",
+  "publication_anchor_utc": "2026-11-02T21:30:00.328Z",
+  "publication_anchor_provenance": "RTPR REST article_published_at for opaque event nBw9vk9FBa-20261102, retrieved after publication; earliest public availability unverified",
+  "identity_passages": [
+    "Apple reports fourth quarter results",
+    "fourth quarter ended September 26, 2026",
+    "Exhibit 99.1"
+  ],
+  "manual_review_notes": [
+    "Quarterly diluted EPS $2.10 and revenue $114.5 billion appear in the opening paragraph.",
+    "The consolidated statements show total net sales 114,477 in millions, versus rounded 114.5 billion in the summary.",
+    "A dollar sign is present, but explicit USD currency and a GAAP label are not established by this release text.",
+    "No explicit numerical current revenue-guidance range appears in this exhibit. No point-in-time consensus has been supplied."
+  ],
+  "selection": "Selected after the event for development; no outcome-based strategy selection or holdout claim"
+}
