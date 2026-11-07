@@ -83,6 +83,14 @@ python -m recorder.research_report --help
 
 Historical quotes preserve actual later retrieval times and never become live observations. Replay requires declared quote/size/condition/status capabilities, models partial/unfilled orders and costs, and separates broker paper fills from conservative modeled fills. Chronological development, validation and untouched evaluation remain separate. Conditional ask-to-bid marks are not strategy returns.
 
+## Automatic delayed price diagnostics
+
+With prepared company context, `--followup-symbols AAPL,MSFT --followup-root data/research-followups` pre-registers verified primary-issuer quarterly cases before fetching prices. It archives receipt −1s to +6s and the scheduled-exit ±2s windows only when each is at least sixteen minutes old. The explicit watchlist is limited to three issuers and bound to its state directory; use a new directory for a different study.
+
+Separate `HISTORICAL_DIAGNOSTIC` archives preserve actual retrieval times and immutable plans. Source-time snapshots at receipt and the +5s ceiling are experimental controls, not a policy of waiting five seconds. They cannot supply live entry checks or establish qualified trades, fills or returns. Incomplete pages suppress snapshots; changed original clocks invalidate cases without re-anchoring. Requests, pages, response size and retries are bounded; interrupted jobs resume with separate immutable attempt archives. Source classification can run without model extraction for this research-only path.
+
+A publication field later than original receipt is conflicting input and blocks entry. Alerts arriving after their already-scheduled exit also skip. Neither condition restarts a deadline.
+
 ## Modules
 
 | Area | Implementation |

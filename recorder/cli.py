@@ -38,6 +38,8 @@ def main(argv=None):
             p.add_argument("--context-db", help="Audited point-in-time context database, prepared before each original publication cutoff")
             p.add_argument("--reference-symbols", default="", help="Up to three subscribed symbols for background prepublication SIP midpoint sampling; requires --context-db")
             p.add_argument("--reference-interval", type=float, default=10, help="At least ten seconds between reference samples; outside the entry path")
+            p.add_argument("--followup-symbols", default="", help="Up to three subscribed prepared issuers for delayed historical SIP price diagnostics; never a live quote fallback")
+            p.add_argument("--followup-root", default="data/research-followups", help="Separate private historical diagnostic state and archives")
             p.add_argument("--extractor", choices=("candidates", "numeric"), default="candidates")
             p.add_argument("--paper", action="store_true", help="Enable gated Alpaca PAPER-only execution and restrictive long-only paper configuration; implies --analyze")
             p.add_argument("--paper-state", default="data/paper-ledger.sqlite")
@@ -160,6 +162,9 @@ def main(argv=None):
                                 orders_enabled=args.paper)
                 reference_symbols = [s.strip().upper() for s in args.reference_symbols.split(",") if s.strip()]
                 metadata.update(reference_symbols=reference_symbols, reference_interval_s=args.reference_interval)
+                followup_symbols = [s.strip().upper() for s in args.followup_symbols.split(",") if s.strip()]
+                metadata.update(historical_followup_symbols=followup_symbols,
+                    historical_followup_mode="HISTORICAL_DIAGNOSTIC" if followup_symbols else None)
             journal = Journal(args.db, metadata)
             if is_capture:
                 contexts = json.loads(Path(args.context).read_text()) if args.context else {}
@@ -169,7 +174,8 @@ def main(argv=None):
                 recorder = Recorder(journal, symbols, feed, analyze=analysis_enabled, contexts=contexts, model=args.model,
                     context_store=context_store, extractor_mode=args.extractor, paper=args.paper,
                     paper_state=args.paper_state, kill_path=args.kill_file,
-                    reference_symbols=reference_symbols, reference_interval=args.reference_interval)
+                    reference_symbols=reference_symbols, reference_interval=args.reference_interval,
+                    followup_symbols=followup_symbols, followup_root=args.followup_root)
                 def publish():
                     write_report(build_report(args.db), args.report, args.html)
                 asyncio.run(recorder.run(args.seconds, report_callback=publish))

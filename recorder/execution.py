@@ -156,6 +156,8 @@ class PaperExecution:
                 raise PaperError("announcement_clock_changed_before_dispatch")
         def check_reservation():
             check_announcement_clock()
+            if self.clock().utc_ns >= parse_rfc3339(intent["scheduled_exit_utc"])[0]:
+                raise PaperError("scheduled_exit_passed_before_entry_dispatch")
             self.check_current_market(analysis["ticker"], quote, self.clock(), side="buy", quantity=payload["qty"])
             self.ledger.check_dispatch(payload["client_order_id"], self.journal.run_id, "entry")
         try:

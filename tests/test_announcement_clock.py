@@ -62,6 +62,15 @@ class ClockTests(unittest.TestCase):
         self.assertEqual(bound["first_event_id"], "earnings")
         self.assertIsNone(bound["block_reason"])
 
+    def test_future_publication_is_conflicting_and_a_later_repeat_cannot_cure_it(self):
+        received = self.alert("future-published", 0, published_ns=BASE+SECOND)
+        first = self.earnings("future-published")
+        self.assertIn("original_publication_after_first_receipt", first["block_reasons"])
+        self.alert("future-published", 2, published_ns=BASE+SECOND)
+        repeated = self.earnings("future-published")
+        self.assertEqual(repeated["effective_receipt"], received)
+        self.assertIn("original_publication_after_first_receipt", repeated["block_reasons"])
+
     def test_unknown_earlier_alert_blocks_admission_without_starting_later_clock(self):
         self.alert("unknown-a", 0)
         first_relevant = self.alert("earnings-b", 2)

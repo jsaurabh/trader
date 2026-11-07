@@ -99,7 +99,8 @@ class Recorder:
     def __init__(self, journal, symbols, feed="iex", *, analyze=False, contexts=None, model=DEFAULT_MODEL, market_inputs=None,
                  context_store=None, extractor_mode="candidates", paper=False,
                  paper_state="data/paper-ledger.sqlite", kill_path="data/paper.kill",
-                 reference_symbols=(), reference_interval=10):
+                 reference_symbols=(), reference_interval=10,
+                 followup_symbols=(), followup_root="data/research-followups"):
         if feed not in ("iex", "sip"):
             raise ValueError("Only explicit real-time iex or sip feeds supported; no delayed fallback")
         if not symbols or any(not SYMBOL.fullmatch(s) for s in symbols):
@@ -110,6 +111,9 @@ class Recorder:
                 or len(set(reference_symbols)) != len(reference_symbols)
                 or any(s not in symbols for s in reference_symbols)):
             raise ValueError("At most three explicit subscribed reference symbols require a context store")
+        if followup_symbols and (len(followup_symbols) > 3 or len(set(followup_symbols)) != len(followup_symbols)
+                or any(s not in symbols for s in followup_symbols) or (context_store is None and not contexts)):
+            raise ValueError("At most three explicit subscribed followup symbols require prepared company context")
         self.journal, self.symbols, self.feed = journal, sorted(set(symbols)), feed
         self.calendar = MarketCalendar(Stamp.now().utc_ns)  # Prepare before any wire receipt.
         self.checkpoints = set()
@@ -120,6 +124,8 @@ class Recorder:
         self.paper_execution, self.paper_ledger, self.paper_broker = None, None, None
         self.reference_symbols, self.reference_interval = tuple(reference_symbols), reference_interval
         self.reference_recorder = None
+        self.followup_symbols, self.followup_root = tuple(followup_symbols), followup_root
+        self.research_followup = None
         self.final_decisions = {}
         self.analyzer = None
         self.quote_snapshots = None
@@ -598,7 +604,12 @@ class Recorder:
                 from .reference import ContextReferenceRecorder
                 self.reference_recorder = ContextReferenceRecorder(self.context_store, self.market_inputs, self.journal,
                     symbols=list(self.reference_symbols), interval_s=self.reference_interval)
-            documents = DocumentCollector(self.journal, client, on_result=self.analyze_document if self.analysis_enabled else None)
+            if self.followup_symbols:
+                from .research_followup import HistoricalResearchFollowup
+                self.research_followup = HistoricalResearchFollowup(self.journal.path, self.followup_root, client,
+                    symbols=list(self.followup_symbols), calendar=self.calendar, journal=self.journal)
+            documents = DocumentCollector(self.journal, client,
+                on_result=self.analyze_document if self.analysis_enabled or self.followup_symbols else None)
             tasks = [asyncio.create_task(self.wire(documents)), asyncio.create_task(self.market()),
                      asyncio.create_task(self.health())]
             if self.paper_enabled:
@@ -611,6 +622,8 @@ class Recorder:
                 tasks.append(asyncio.create_task(refresh_conditions()))
             if self.reference_recorder:
                 tasks.append(asyncio.create_task(self.reference_recorder.run()))
+            if self.research_followup:
+                tasks.append(asyncio.create_task(self.research_followup.run()))
             tasks += [asyncio.create_task(documents.worker()) for _ in range(documents.worker_count)]
             tasks += [asyncio.create_task(self.quote_snapshots.worker()) for _ in range(2)]
             if report_callback:
@@ -638,6 +651,12 @@ class Recorder:
                 for task in [duration, *tasks, *self.checkpoints]:
                     task.cancel()
                 await asyncio.gather(duration, *tasks, *self.checkpoints, return_exceptions=True)
+                if self.research_followup:
+                    try:
+                        await self.research_followup.aclose()
+                    except Exception as exc:
+                        self.journal.emit("gap", {"stream": "research_followup", "reason": "research_shutdown_failed",
+                            "error_class": type(exc).__name__})
                 self.journal.emit("run_end", {"reason": "observation_stopped", "document_jobs_not_started": documents.pending.qsize(),
                                               "quote_snapshot_jobs_not_started": self.quote_snapshots.pending.qsize()})
 

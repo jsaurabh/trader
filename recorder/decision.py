@@ -5,7 +5,7 @@ import hashlib
 from .timebase import DEADLINE_NS, SECOND, iso_utc, parse_rfc3339
 from .context import LIQUIDITY_POLICY, expected_liquidity_end
 
-VERSION = "research-defaults-v0-decision-v3"
+VERSION = "research-defaults-v0-decision-v4"
 POLICY = {"min_price": "5", "min_20_session_dollar_volume": "50000000",
           "max_spread_pct": "0.25", "max_reference_increase_pct": "5",
           "max_position_dollars": "1000", "max_positions": 3,
@@ -49,6 +49,10 @@ def evaluate_paper_intent(analysis, inputs, receipt, published_ns, calendar, clo
               "inputs": inputs, "paper_intent": None}
     if now.mono_ns >= receipt.mono_ns + DEADLINE_NS:
         reasons.append("five_second_deadline_expired")
+    checks["publication_not_after_first_receipt"] = type(published_ns) is int and published_ns <= receipt.utc_ns
+    if not checks["publication_not_after_first_receipt"]:
+        reasons.append("publication_timestamp_missing_or_after_first_receipt")
+        return result
     if not isinstance(inputs, dict):
         reasons.append("missing_decision_inputs")
         return result
@@ -146,6 +150,7 @@ def evaluate_paper_intent(analysis, inputs, receipt, published_ns, calendar, clo
         exit_ns = next_exit(calendar, published_ns)
         ready = clock()
         check("within_original_five_second_deadline", ready.mono_ns < receipt.mono_ns + DEADLINE_NS)
+        check("scheduled_exit_still_in_future", exit_ns > ready.utc_ns)
         if not reasons:
             result["decision"] = "paper_intent_candidate" if analysis.get("mode") == "OBSERVED" else "research_intent_ready"
             identifier = hashlib.sha256((VERSION+":"+ticker+":"+event_id).encode()).hexdigest()[:32]

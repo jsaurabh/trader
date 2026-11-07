@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 from .journal import read_rows
 from .timebase import SECOND, Stamp
 
-VERSION = "first-relevant-announcement-clock-v1"
+VERSION = "first-relevant-announcement-clock-v2"
 _TICKER = re.compile(r"^[A-Z][A-Z0-9./-]{0,14}$")
 KINDS = ("alert", "announcement_clock_alert", "announcement_clock_classification", "announcement_clock_binding")
 
@@ -259,6 +259,8 @@ class AnnouncementClockRegistry:
             reasons.append("first_relevant_receipt_from_prior_run_research_only")
         if first.publication_ns is None:
             reasons.append("missing_original_publication_time")
+        elif first.publication_ns > first.receipt.utc_ns:
+            reasons.append("original_publication_after_first_receipt")
         if event.relevant is True:
             company_windows = {(company, window) for e in members for company in e.tickers for window in e.windows}
             candidates = set().union(*(self._by_company_window.get(pair, set()) for pair in company_windows)) if company_windows else set()

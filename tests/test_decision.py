@@ -74,6 +74,27 @@ class DecisionTests(unittest.TestCase):
                 self.assertEqual(result["decision"], "skip")
                 self.assertIsNone(result["paper_intent"])
 
+    def test_future_publication_cannot_make_post_receipt_context_look_prepublication(self):
+        self.published = self.receipt.utc_ns+2*SECOND
+        self.clock.advance(SECOND)
+        for key in ('company','liquidity','reference'):
+            self.inputs[key]['available_at'] = iso_utc(self.receipt.utc_ns+SECOND//2)
+        result = self.evaluate()
+        self.assertIsNone(result['paper_intent'])
+        self.assertFalse(result['checks']['publication_not_after_first_receipt'])
+        self.assertIn('publication_timestamp_missing_or_after_first_receipt', result['reasons'])
+
+    def test_delayed_alert_cannot_open_a_position_after_its_scheduled_exit(self):
+        # A very late alert can arrive in a supported premarket window after the
+        # original announcement's next-session exit has already passed.
+        self.clock.stamp = Stamp(parse_rfc3339('2026-11-04T12:00:00Z')[0], 100*SECOND)
+        self.receipt = self.clock.now()
+        self.inputs = inputs_for(self.receipt, self.published)
+        result = self.evaluate()
+        self.assertIsNone(result['paper_intent'])
+        self.assertTrue(result['checks']['current_extended_hours_session'])
+        self.assertIn('scheduled_exit_still_in_future:failed', result['reasons'])
+
     def test_freshly_downloaded_stale_source_quote_is_rejected(self):
         self.inputs["quote"]["source_utc"] = iso_utc(self.receipt.utc_ns-SECOND-1)
         self.assertIn("quote_available_and_fresh:failed", self.evaluate()["reasons"])

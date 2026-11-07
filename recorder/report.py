@@ -377,6 +377,15 @@ def build_report(path):
             "source_sha256", "price", "observed_at", "document_id", "fact_id") if key in data}
         summary.update(run_id=row["run_id"], available_utc=iso_utc(row["stamp"].utc_ns), entry_authority=False)
         reference_latest[(row["run_id"], data.get("ticker"))] = summary
+    followup_latest, followup_counts = {}, Counter()
+    for row in read_rows(path, kinds=("research_followup_health",)):
+        data = row["data"]
+        if runs.get(row["run_id"], {}).get("mode") != "OBSERVED" or data.get("mode") != "HISTORICAL_DIAGNOSTIC":
+            continue
+        followup_counts[data.get("status", "unknown")] += 1
+        followup_latest[row["run_id"]] = {"utc": iso_utc(row["stamp"].utc_ns), "run_id": row["run_id"],
+            **{key: data[key] for key in ("status", "followup_version", "registered", "skipped", "source_rows", "case_count",
+                "case_status_counts", "job_status_counts", "job_status", "complete", "error_class") if key in data}}
     for metadata in runs.values():
         metadata['live_orders_enabled'] = False
         metadata['orders_enabled'] = False
@@ -511,6 +520,10 @@ def build_report(path):
                 "status_counts": dict(reference_counts), "gap_reason_counts": dict(reference_gaps),
                 "latest_by_run_symbol": list(reference_latest.values()),
                 "meaning": "Sampled prepublication reference; not a current execution quote, fill or entry authorization"},
+            "historical_followups": {"mode": "HISTORICAL_DIAGNOSTIC", "entry_authority": False,
+                "enabled_requested": any(bool(run.get("historical_followup_symbols")) for run in runs.values()),
+                "status_counts": dict(followup_counts), "latest_by_run": list(followup_latest.values()),
+                "meaning": "Separate delayed archives for price diagnostics; never a live quote fallback, qualified trade or fill"},
             "record_counts": counts,
             "analysis_records": [_analysis_summary(r["data"]) for r in rows if r["kind"] == "analysis"],
             "historical_quotes": historical_reports(rows),
@@ -649,6 +662,11 @@ def write_report(report, json_path, html_path=None):
                           + detail_html + '<p>Extraction and earnings comparisons do not authorize an order.</p></section>')
         paper = report.get('paper_summary',{})
         reference = report.get('reference_preparation', {})
+        followup = report.get('historical_followups', {})
+        if followup.get('enabled_requested'):
+            events.append('<section><h2>Delayed historical price diagnostics</h2>'
+                '<p>Separate pre-registered receipt and scheduled-exit windows are retrieved at least sixteen minutes later. '
+                'No fills, trading returns or past live availability are inferred.</p><pre>'+esc(json.dumps(followup, indent=2))+'</pre></section>')
         if reference.get('latest_by_run_symbol'):
             events.append('<section><h2>Prepublication reference preparation</h2>'
                 '<p>Sampled reference prices grant no entry authority. Closed sessions, IEX and unavailable or unverified data remain explicit gaps.</p>'
