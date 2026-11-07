@@ -279,6 +279,47 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result['conditions_eligible'])
         self.assertIn('quote_condition_metadata_not_prepared_or_changed', result['reason_codes'])
 
+    async def test_background_refresh_restores_expired_metadata_before_entry_work(self):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(metadata_response)) as client:
+            provider = MarketInputs(client, calendar=self.calendar, clock=self.clock.now)
+            await provider.prewarm()
+            self.clock.advance(25*3600*SECOND)
+            establish_status(provider.status, self.clock)
+            body = {'symbol':'ZZTEST','quote':quote(self.clock)}
+            self.assertFalse(provider.normalize('ZZTEST', body, self.clock.now())['conditions_eligible'])
+            pauses = []
+            async def controlled_sleep(delay):
+                pauses.append(delay)
+                if len(pauses) > 1:
+                    raise asyncio.CancelledError
+            with patch('recorder.market_inputs.asyncio.sleep', side_effect=controlled_sleep):
+                with self.assertRaises(asyncio.CancelledError):
+                    await provider.refresh_metadata()
+            self.assertTrue(provider.normalize('ZZTEST', body, self.clock.now())['conditions_eligible'])
+
+    async def test_failed_refresh_keeps_expired_metadata_ineligible_and_retries(self):
+        denied = False
+        async def respond(request):
+            return httpx.Response(403) if denied else metadata_response(request)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            provider = MarketInputs(client, calendar=self.calendar, clock=self.clock.now)
+            await provider.prewarm()
+            original = dict(provider.metadata_at)
+            self.clock.advance(25*3600*SECOND)
+            establish_status(provider.status, self.clock)
+            denied = True
+            pauses = []
+            async def controlled_sleep(delay):
+                pauses.append(delay)
+                if len(pauses) > 1:
+                    raise asyncio.CancelledError
+            with patch('recorder.market_inputs.asyncio.sleep', side_effect=controlled_sleep):
+                with self.assertRaises(asyncio.CancelledError):
+                    await provider.refresh_metadata()
+            self.assertEqual(pauses[-1], 60)
+            self.assertEqual(provider.metadata_at, original)
+            self.assertFalse(provider.normalize('ZZTEST', {'symbol':'ZZTEST','quote':quote(self.clock)}, self.clock.now())['conditions_eligible'])
+
     def test_early_close_extended_window_not_silently_assumed_normal(self):
         clock = Clock('2026-11-27T19:00:00Z')
         provider = MarketInputs(None, calendar=self.calendar, clock=clock.now)

@@ -12,6 +12,7 @@ import httpx
 from recorder.collectors import Recorder, run_metadata
 from recorder.journal import Journal, read_rows
 from recorder.market_inputs import MarketInputs, StatusBook
+from recorder.ingress import StampedClientConnection
 from recorder.timebase import SECOND, Stamp, iso_utc
 
 
@@ -58,6 +59,10 @@ class MarketIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 self.stock, self.index = stock, 0
             async def send(self, raw):
                 sent.append((self.stock, json.loads(raw)))
+            async def recv_stamped(self):
+                raw = await self.recv()
+                stamp = Stamp.now()  # Fabricated unqueued message, no real socket.
+                return raw, stamp, stamp
             async def recv(self):
                 self.index += 1
                 now = Stamp.now()
@@ -79,6 +84,7 @@ class MarketIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.Event().wait()
         @asynccontextmanager
         async def connection(url, **kwargs):
+            self.assertIs(kwargs.get('create_connection'), StampedClientConnection)
             self.assertEqual(set(recorder.market_inputs.conditions), set('ABC'))
             stock = url.startswith('wss://stream.data.alpaca.markets/')
             calls.append('stock_socket' if stock else 'wire_socket')
@@ -103,12 +109,38 @@ class MarketIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(quotes), 1)
         self.assertEqual(quotes[0]['data']['raw']['ap'], '10.02')
 
+    async def test_background_condition_refresh_starts_after_startup_preparation(self):
+        calls, refreshing = [], asyncio.Event()
+        class RefreshingAdapter(PreparedAdapter):
+            async def prewarm(inner):
+                calls.append('prewarm')
+                return await super().prewarm()
+            async def refresh_metadata(inner):
+                calls.append('refresh')
+                refreshing.set()
+                await asyncio.Event().wait()
+        recorder = Recorder(self.journal, ['ZZTEST'], market_inputs=RefreshingAdapter())
+        async def wire(*args): await asyncio.Event().wait()
+        async def market():
+            await recorder.prepare_market_inputs()
+            await asyncio.Event().wait()
+        with patch.object(recorder, 'wire', wire), patch.object(recorder, 'market', market):
+            running = asyncio.create_task(recorder.run(None))
+            try:
+                await asyncio.wait_for(refreshing.wait(), 1)
+                self.assertEqual(calls, ['prewarm', 'refresh'])
+            finally:
+                running.cancel()
+                await asyncio.gather(running, return_exceptions=True)
+
     async def test_prewarm_failure_releases_wire_with_gap_without_logging_failure_text(self):
         adapter = PreparedAdapter(failure=True)
         recorder = Recorder(self.journal, ['ZZTEST'], feed='sip', market_inputs=adapter)
         recorder.market_metadata_ready.clear()
         connected = asyncio.Event()
         class Socket:
+            async def recv_stamped(self):
+                await self.recv()
             async def recv(self):
                 connected.set()
                 await asyncio.Event().wait()
@@ -172,6 +204,10 @@ class MarketIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 self.index = 0
             async def send(self, raw):
                 sent.append(json.loads(raw))
+            async def recv_stamped(self):
+                raw = await self.recv()
+                stamp = Stamp.now()
+                return raw, stamp, stamp
             async def recv(self):
                 self.index += 1
                 if self.index == 1:

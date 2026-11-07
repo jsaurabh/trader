@@ -290,6 +290,26 @@ class MarketInputs:
         values = await asyncio.gather(*(get(t) for t in "ABC"), return_exceptions=True)
         return [v if not isinstance(v, BaseException) else {"status": "error", "error_class": type(v).__name__} for v in values]
 
+    async def refresh_metadata(self, *, interval_s=6*3600, retry_s=60):
+        """Refresh outside entry deadlines; stale or failed metadata never grants eligibility."""
+        if any(isinstance(value, bool) or not isinstance(value, (int, float))
+               or not 0 < value < float("inf") for value in (interval_s, retry_s)):
+            raise ValueError("positive_finite_metadata_refresh_intervals_required")
+        def prepared():
+            now = self.clock()
+            return all(tape in self.metadata_at
+                and 0 <= now.utc_ns-self.metadata_at[tape].utc_ns <= 86400*SECOND
+                and self.conditions.get(tape, {}).get("R", "").strip().casefold() == REGULAR_NAMES[tape]
+                for tape in "ABC")
+        delay = interval_s if prepared() else retry_s
+        while True:
+            await asyncio.sleep(delay)
+            results = await self.prewarm(deadline_mono_ns=self.clock().mono_ns+5*SECOND)
+            success = len(results) == 3 and all(result.get("status") == "prepared" for result in results) and prepared()
+            self.emit("market_condition_refresh", {"status": "prepared" if success else "incomplete",
+                "results": results, "next_refresh_seconds": interval_s if success else retry_s})
+            delay = interval_s if success else retry_s
+
     def broker_session(self, now):
         session = self.calendar.session(now.utc_ns)
         reason = None

@@ -23,6 +23,8 @@ from .announcement_clock import AnnouncementClockRegistry
 from .candidates import build_catalogue, CandidateExtractor
 from .execution import PaperExecution
 from .issuer import verify_issuer, VERB, RESULTS, PERIOD
+from .ingress import (StampedClientConnection, IngressError, receive_stamped, ingress_metadata,
+                      RECEIPT_BOUNDARY, UNMEASURED_BEFORE_RECEIPT, INGRESS_VERSION)
 from .paper_broker import PaperBroker
 from .portfolio import PaperLedger
 from .snapshots import QuoteSnapshots
@@ -82,7 +84,8 @@ def normalize_alert(msg):
 def safe_error(exc):
     # Never log exception text: websockets/httpx may include credentials in URLs.
     return {"error_class": type(exc).__name__,
-            "close_code": getattr(getattr(exc, "rcvd", None), "code", None)}
+            "close_code": getattr(getattr(exc, "rcvd", None), "code", None),
+            **({"ingress_fault": exc.code} if isinstance(exc, IngressError) else {})}
 
 
 async def backoff(seconds):
@@ -363,8 +366,9 @@ class Recorder:
         finally:
             self.analysis_in_flight.discard(event)
 
-    def handle_wire(self, raw, received, documents):
-        self.journal.emit("wire_frame", {"raw": raw}, received)
+    def handle_wire(self, raw, received, documents, read=None):
+        timing = ingress_metadata(received, read) if read is not None else {}
+        self.journal.emit("wire_frame", {"raw": raw, **timing}, received)
         try:
             msg = json.loads(raw)
             if not isinstance(msg, dict):
@@ -372,6 +376,9 @@ class Recorder:
             kind = msg.get("type")
             if kind == "alert":
                 alert = normalize_alert(msg)
+                if read is not None:
+                    alert.update(timing, full_message_available_utc_ns=read.utc_ns,
+                                 full_message_available_mono_ns=read.mono_ns)
                 event = alert["event_id"]
                 # Record at the original recv boundary, before document queues.
                 # All IDs participate, including duplicates and later entry skips.
@@ -413,14 +420,14 @@ class Recorder:
             error = {}
             try:
                 async with connect(url, open_timeout=10, close_timeout=2, ping_interval=20,
-                                   ping_timeout=20, max_size=2**20, max_queue=16) as ws:
+                                   ping_timeout=20, max_size=2**20, max_queue=16,
+                                   create_connection=StampedClientConnection) as ws:
                     self.journal.emit("transport", {"stream": "rtpr", "state": "handshake_accepted"})
                     while True:
-                        raw = await asyncio.wait_for(ws.recv(), timeout=75)
-                        received = Stamp.now()  # Before JSON, queues, documents, or numerical work.
+                        raw, received, read = await asyncio.wait_for(receive_stamped(ws), timeout=75)
                         if isinstance(raw, bytes):
                             raw = raw.decode("utf-8", errors="replace")
-                        kind = self.handle_wire(raw, received, documents)
+                        kind = self.handle_wire(raw, received, documents, read)
                         if kind == "ping":
                             await ws.send('{"type":"pong"}')
                             self.journal.emit("heartbeat", {"stream": "rtpr", "pong_sent": True})
@@ -437,8 +444,12 @@ class Recorder:
             self.journal.emit("gap", {"stream": "rtpr", "reason": "disconnected_no_replay_guarantee", "retry_in_s": delay})
             await backoff(delay + random.uniform(0, 0.25))
 
-    def handle_market(self, raw, received):
-        self.journal.emit("market_frame", {"raw": raw, "feed": self.feed}, received)
+    def handle_market(self, raw, received, read=None):
+        timing = ingress_metadata(received, read) if read is not None else {}
+        # A fragmented/queued quote wasn't available at the first frame's callback.
+        # Raw transport timing and complete-message availability are different.
+        available = read if read is not None else received
+        self.journal.emit("market_frame", {"raw": raw, "feed": self.feed, **timing}, received)
         try:
             messages = json.loads(raw, parse_float=str)
             if not isinstance(messages, list):
@@ -449,20 +460,21 @@ class Recorder:
                 kind = msg.get("T")
                 if self.market_inputs:
                     if kind == "subscription":
-                        self.market_inputs.status.subscribed(msg, received)
+                        self.market_inputs.status.subscribed(msg, available)
                     elif kind in ("q", "s"):
-                        self.market_inputs.status.ingest(msg, received, self.feed)
+                        self.market_inputs.status.ingest(msg, available, self.feed)
                 if kind in ("q", "t", "c", "x", "s", "l"):
-                    record = {"feed": self.feed, "raw": msg,
-                              "calendar_session_at_receipt": self.calendar.session(received.utc_ns),
+                    record = {"feed": self.feed, "raw": msg, **timing,
+                              "available_utc_ns": available.utc_ns, "available_mono_ns": available.mono_ns,
+                              "calendar_session_at_receipt": self.calendar.session(available.utc_ns),
                               "exchange_halt_status": "unknown_unless_status_message_observed"}
                     self.journal.emit({"q": "quote", "t": "trade", "c": "trade_correction", "x": "trade_cancel",
-                                       "s": "market_status", "l": "market_status"}[kind], record, received)
+                                       "s": "market_status", "l": "market_status"}[kind], record, available)
             return messages
         except (ValueError, TypeError, KeyError, AttributeError):
             if self.market_inputs:
-                self.market_inputs.status.disconnected(received)
-            self.journal.emit("gap", {"stream": "alpaca", "reason": "unrecognized_frame_preserved"}, received)
+                self.market_inputs.status.disconnected(available)
+            self.journal.emit("gap", {"stream": "alpaca", "reason": "unrecognized_frame_preserved"}, available)
             return []
 
     async def prepare_market_inputs(self):
@@ -503,7 +515,8 @@ class Recorder:
             error = {}
             try:
                 async with connect(ALPACA_STREAM + self.feed, open_timeout=10, close_timeout=2,
-                                   ping_interval=20, ping_timeout=20, max_size=4*2**20, max_queue=16) as ws:
+                                   ping_interval=20, ping_timeout=20, max_size=4*2**20, max_queue=16,
+                                   create_connection=StampedClientConnection) as ws:
                     if self.market_inputs:
                         self.market_inputs.status.connected(self.feed, Stamp.now())
                     await ws.send(json.dumps({"action": "auth", "key": headers["APCA-API-KEY-ID"],
@@ -511,11 +524,11 @@ class Recorder:
                     authenticated, subscribed = False, False
                     while True:
                         # Quiet markets may have no application traffic; protocol ping checks health.
-                        raw = await asyncio.wait_for(ws.recv(), timeout=10) if not (authenticated and subscribed) else await ws.recv()
-                        received = Stamp.now()
+                        raw, received, read = (await asyncio.wait_for(receive_stamped(ws), timeout=10)
+                                              if not (authenticated and subscribed) else await receive_stamped(ws))
                         if isinstance(raw, bytes):
                             raw = raw.decode("utf-8", errors="replace")
-                        messages = self.handle_market(raw, received)
+                        messages = self.handle_market(raw, received, read)
                         for msg in messages:
                             if msg.get("T") == "error":
                                 error = {"vendor_error_code": msg.get("code")}
@@ -590,6 +603,12 @@ class Recorder:
                      asyncio.create_task(self.health())]
             if self.paper_enabled:
                 tasks.append(asyncio.create_task(self.paper_execution.run()))
+            refresh_metadata = getattr(self.market_inputs, "refresh_metadata", None)
+            if callable(refresh_metadata):
+                async def refresh_conditions():
+                    await self.market_metadata_ready.wait()
+                    await refresh_metadata()
+                tasks.append(asyncio.create_task(refresh_conditions()))
             if self.reference_recorder:
                 tasks.append(asyncio.create_task(self.reference_recorder.run()))
             tasks += [asyncio.create_task(documents.worker()) for _ in range(documents.worker_count)]
@@ -631,7 +650,9 @@ def run_metadata(symbols, feed, synthetic=False):
     return {"schema_version": 1, "mode": "SYNTHETIC" if synthetic else "OBSERVED",
             "symbols": sorted(set(symbols)), "feed": feed, "orders_enabled": False,
             "paper_enabled_requested": False, "live_orders_enabled": False,
-            "receipt_boundary": "application websocket recv return, before parse; library/network buffers precede this",
+            "receipt_boundary": RECEIPT_BOUNDARY, "ingress_version": INGRESS_VERSION,
+            "unmeasured_before_receipt": UNMEASURED_BEFORE_RECEIPT,
+            "market_availability_boundary": "complete-message application read; first-fragment callback retained separately",
             "local_clock_precision": "time_ns representation; synchronization accuracy unverified",
             "deadline_ns": DEADLINE_NS,
             "document_adapter_version": ARTICLE_ADAPTER_VERSION,

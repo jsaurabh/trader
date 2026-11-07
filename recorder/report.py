@@ -456,6 +456,11 @@ def build_report(path):
             "publication_precision_ns": a.get("published_precision_ns"), "publication_meaning": a.get("publication_meaning"),
             "receipt_utc": iso_utc(received.utc_ns), "receipt_los_angeles": local_time(received.utc_ns),
             "receipt_boundary": metadata.get("receipt_boundary"),
+            "ingress_version": a.get("ingress_version", metadata.get("ingress_version")),
+            "unmeasured_before_receipt": metadata.get("unmeasured_before_receipt"),
+            "full_alert_available_utc": iso_utc(a["full_message_available_utc_ns"]) if isinstance(a.get("full_message_available_utc_ns"), int) else None,
+            "wire_ingress_to_application_read_ns": a.get("library_queue_delay_ns"),
+            "wire_ingress_delay_meaning": a.get("library_queue_delay_meaning"),
             "publication_to_receipt_ns": received.utc_ns - pub if pub is not None else None,
             "publication_latency_caveat": "Vendor timestamp meaning and local clock synchronization unverified",
             "five_second_target_utc": iso_utc(target.utc_ns),
@@ -577,6 +582,11 @@ def write_report(report, json_path, html_path=None):
                        ("Publication precision, ns", event["publication_precision_ns"]),
                        ("Receipt · Los Angeles", event["receipt_los_angeles"]),
                        ("Receipt · UTC", event["receipt_utc"]),
+                       ("Receipt boundary", event.get("receipt_boundary")),
+                       ("Full alert available · UTC", event.get("full_alert_available_utc")),
+                       ("Ingress → application read, ms", str(Decimal(event["wire_ingress_to_application_read_ns"])/1_000_000)
+                        if event.get("wire_ingress_to_application_read_ns") is not None else "not measured by this run"),
+                       ("Ingress delay meaning", event.get("wire_ingress_delay_meaning")),
                        ("Publication → receipt, ms", str(Decimal(event["publication_to_receipt_ns"])/1_000_000)
                         if event["publication_to_receipt_ns"] is not None else None),
                        ("Five-second target · UTC", event["five_second_target_utc"]),

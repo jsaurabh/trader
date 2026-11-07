@@ -230,6 +230,10 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
         sent, delays = [], []
         class Socket:
             frames = iter(['{"type":"connected"}', '{"type":"ping"}'])
+            async def recv_stamped(self):
+                raw = await self.recv()
+                stamp = Stamp.now()  # Fabricated unqueued socket message.
+                return raw, stamp, stamp
             async def recv(self):
                 try:
                     return next(self.frames)

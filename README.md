@@ -8,6 +8,10 @@ No profitable edge or complete prospective five-second performance has been esta
 
 The original five-second deadline begins when the first relevant wire alert is received, before parsing. It includes queueing, full-text retrieval, extraction, source validation, numerical comparisons, current quotes, portfolio checks and durable audit storage. Submit as soon as ready; missing information or expiry means skip. Duplicates, corrections and process restarts cannot renew the clock.
 
+Wire receipt uses transport `data_received()` callback entry before protocol parsing and message queueing. The first complete data frame retains its timestamp across fragments and delayed reads; cancellation and queue faults cannot restart the budget. Callback-to-read delay includes parsing, remaining fragments and library/application queues. Kernel/TLS/pre-callback time and earlier incomplete-frame bytes remain unmeasured. Quotes/status become available only after complete-message read, so an earlier fragment cannot create a future-price observation.
+
+Quote-condition metadata refreshes outside the entry path every six hours, with prompt retries after missing/failed preparation. Expired or unsupported definitions remain ineligible.
+
 Paper transport is pinned to `https://paper-api.alpaca.markets`; no live order transport is implemented. Entries require verified issuer identity, comparable point-in-time expectations, fresh eligible quotes, risk checks, a durable reservation and committed decision evidence. The transport rechecks deadline, announcement binding, market state and kill switch immediately before request headers. Ambiguous submissions are reconciled rather than blindly retried.
 
 Research defaults are long common-stock shares, no leverage/options/shorting, $100,000 simulated starting cash, at most $1,000 per position and three simultaneous companies, one entry per announcement, a $500 daily loss pause and a 5% drawdown review. These are development settings, not proven profitable rules. Existing positions retain their scheduled exits through entry pauses.
