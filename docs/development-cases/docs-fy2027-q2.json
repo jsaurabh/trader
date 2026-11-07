@@ -1,0 +1,23 @@
+{
+  "case_id": "DOCS-FY2027-Q2-development-v1",
+  "ticker": "DOCS",
+  "title": "Doximity Announces Fiscal 2027 Second Quarter Financial Results",
+  "source_reviewed": true,
+  "primary_source_url": "https://www.sec.gov/Archives/edgar/data/1516513/000151651326000049/doximity-2026930xex991.htm",
+  "issuer_source_url": "https://investors.doximity.com/news/default.aspx",
+  "reviewed_html_sha256": "aee22e20ba9948c91791006f67af28852b687c1fc370858223a81473d11b0abd",
+  "publication_anchor_utc": "2026-11-05T21:01:00.351Z",
+  "publication_anchor_provenance": "Candidate RTPR REST article_published_at for DOCS Business Wire reference nBw2jdc8ga-20261105. Historical article-body identity was not verified; hypothetical research anchor only. No live receipt is claimed.",
+  "identity_passages": [
+    "Doximity Announces Fiscal 2027 Second Quarter Financial Results",
+    "quarter ended September\u00a030, 2026",
+    "Exhibit 99.1"
+  ],
+  "manual_review_notes": [
+    "Quarter revenue $174.5 million; diluted EPS $0.18 and non-GAAP diluted EPS $0.36 appear in financial highlights.",
+    "Revenue guidance is $195-196 million for the quarter ending December 31, 2026 and $678-683 million for the fiscal year ending March 31, 2027.",
+    "No point-in-time consensus is supplied. Previous guidance is not supplied to the model or comparison engine.",
+    "USD currency must remain unverified unless supported by explicit cited text. Mixed GAAP/non-GAAP passages require cautious basis validation."
+  ],
+  "selection": "Second primary-source development case, not a holdout or a selected trade"
+}
